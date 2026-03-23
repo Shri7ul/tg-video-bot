@@ -18,6 +18,8 @@ def run_web():
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+# 🔥 progress control memory
+last_update = {}
 
 def get_updates(offset=None):
     url = f"{BASE_URL}/getUpdates"
@@ -36,11 +38,31 @@ def send_video(chat_id, file_path):
         requests.post(url, data={"chat_id": chat_id}, files={"video": f})
 
 
-# 🔥 download with quality control
-def download_video(url, low_quality=False):
+# 🔥 progress hook (anti-spam)
+def progress_hook(d, chat_id):
+    if d['status'] == 'downloading':
+        percent = d.get('_percent_str', '0%').replace('%', '').strip()
+
+        try:
+            percent = int(float(percent))
+        except:
+            percent = 0
+
+        if chat_id not in last_update:
+            last_update[chat_id] = 0
+
+        # প্রতি 10% এ update
+        if percent - last_update[chat_id] >= 10:
+            last_update[chat_id] = percent
+            send_message(chat_id, f"Downloading... {percent}%")
+
+
+# 🔥 download with progress + quality
+def download_video(url, chat_id, low_quality=False):
     ydl_opts = {
         'outtmpl': 'video.%(ext)s',
         'noplaylist': True,
+        'progress_hooks': [lambda d: progress_hook(d, chat_id)],
     }
 
     if low_quality:
@@ -70,38 +92,54 @@ def main():
                 chat_id = update["message"]["chat"]["id"]
                 text = update["message"].get("text", "")
 
+                # ✅ start command
                 if text.startswith("/start"):
                     send_message(chat_id, "Link dao, ami video download kore dibo 📥")
                     continue
 
-                send_message(chat_id, "Downloading... ⏳")
+                # ✅ validation
+                if not text.startswith("http"):
+                    send_message(chat_id, "Valid link dao ❌")
+                    continue
+
+                send_message(chat_id, "Processing link... 🔍")
 
                 try:
-                    # 🔥 first try high quality
-                    file_path = download_video(text)
+                    # 🔥 high quality try
+                    file_path = download_video(text, chat_id)
 
                     size = os.path.getsize(file_path)
 
-                    # ✅ যদি 50MB এর বেশি হয়
+                    # 🔥 large হলে fallback
                     if size > 50 * 1024 * 1024:
                         os.remove(file_path)
 
                         send_message(chat_id, "File too large, trying low quality... ⚡")
 
-                        # 🔥 retry low quality
-                        file_path = download_video(text, low_quality=True)
+                        file_path = download_video(text, chat_id, low_quality=True)
                         size = os.path.getsize(file_path)
 
                         if size > 50 * 1024 * 1024:
                             os.remove(file_path)
-                            send_message(chat_id, "Still too large ❌\nUse smaller video or I’ll add link system later.")
+                            send_message(chat_id, "Still too large ❌")
                             continue
+
+                    send_message(chat_id, "Uploading... 📤")
 
                     # ✅ send video
                     send_video(chat_id, file_path)
                     os.remove(file_path)
 
+                    send_message(chat_id, "Done ✅")
+
                 except Exception as e:
+                    send_message(chat_id, f"Error: {str(e)}")
+
+        time.sleep(2)
+
+
+if __name__ == "__main__":
+    main()                except Exception as e:
                     send_message(chat_id, f"Error: {str(e)}")
 
         time.sleep(2)
