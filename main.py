@@ -18,7 +18,7 @@ def run_web():
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# 🔥 progress control memory
+# progress control
 last_update = {}
 
 def get_updates(offset=None):
@@ -38,7 +38,7 @@ def send_video(chat_id, file_path):
         requests.post(url, data={"chat_id": chat_id}, files={"video": f})
 
 
-# 🔥 progress hook (anti-spam)
+# progress hook
 def progress_hook(d, chat_id):
     if d['status'] == 'downloading':
         percent = d.get('_percent_str', '0%').replace('%', '').strip()
@@ -51,13 +51,12 @@ def progress_hook(d, chat_id):
         if chat_id not in last_update:
             last_update[chat_id] = 0
 
-        # প্রতি 10% এ update
         if percent - last_update[chat_id] >= 10:
             last_update[chat_id] = percent
             send_message(chat_id, f"Downloading... {percent}%")
 
 
-# 🔥 download with progress + quality
+# download function
 def download_video(url, chat_id, low_quality=False):
     ydl_opts = {
         'outtmpl': 'video.%(ext)s',
@@ -88,59 +87,51 @@ def main():
         for update in data.get("result", []):
             offset = update["update_id"] + 1
 
-            if "message" in update:
-                chat_id = update["message"]["chat"]["id"]
-                text = update["message"].get("text", "")
+            if "message" not in update:
+                continue
 
-                # ✅ start command
-                if text.startswith("/start"):
-                    send_message(chat_id, "Link dao, ami video download kore dibo 📥")
-                    continue
+            chat_id = update["message"]["chat"]["id"]
+            text = update["message"].get("text", "")
 
-                # ✅ validation
-                if not text.startswith("http"):
-                    send_message(chat_id, "Valid link dao ❌")
-                    continue
+            # start command
+            if text.startswith("/start"):
+                send_message(chat_id, "Link dao, ami video download kore dibo 📥")
+                continue
 
-                send_message(chat_id, "Processing link... 🔍")
+            # validation
+            if not text.startswith("http"):
+                send_message(chat_id, "Valid link dao ❌")
+                continue
 
-                try:
-                    # 🔥 high quality try
-                    file_path = download_video(text, chat_id)
+            send_message(chat_id, "Processing link... 🔍")
 
+            try:
+                # high quality
+                file_path = download_video(text, chat_id)
+                size = os.path.getsize(file_path)
+
+                # fallback low quality
+                if size > 50 * 1024 * 1024:
+                    os.remove(file_path)
+                    send_message(chat_id, "File too large, trying low quality... ⚡")
+
+                    file_path = download_video(text, chat_id, low_quality=True)
                     size = os.path.getsize(file_path)
 
-                    # 🔥 large হলে fallback
                     if size > 50 * 1024 * 1024:
                         os.remove(file_path)
+                        send_message(chat_id, "Still too large ❌")
+                        continue
 
-                        send_message(chat_id, "File too large, trying low quality... ⚡")
+                send_message(chat_id, "Uploading... 📤")
 
-                        file_path = download_video(text, chat_id, low_quality=True)
-                        size = os.path.getsize(file_path)
+                send_video(chat_id, file_path)
+                os.remove(file_path)
 
-                        if size > 50 * 1024 * 1024:
-                            os.remove(file_path)
-                            send_message(chat_id, "Still too large ❌")
-                            continue
+                send_message(chat_id, "Done ✅")
 
-                    send_message(chat_id, "Uploading... 📤")
-
-                    # ✅ send video
-                    send_video(chat_id, file_path)
-                    os.remove(file_path)
-
-                    send_message(chat_id, "Done ✅")
-
-                except Exception as e:
-                    send_message(chat_id, f"Error: {str(e)}")
-
-        time.sleep(2)
-
-
-if __name__ == "__main__":
-    main()                except Exception as e:
-                    send_message(chat_id, f"Error: {str(e)}")
+            except Exception as e:
+                send_message(chat_id, f"Error: {str(e)}")
 
         time.sleep(2)
 
