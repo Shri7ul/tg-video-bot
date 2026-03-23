@@ -2,6 +2,18 @@ import os
 import time
 import requests
 import yt_dlp
+from flask import Flask
+import threading
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is running!"
+
+def run_web():
+    app.run(host="0.0.0.0", port=10000)
+    
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -33,6 +45,9 @@ def download_video(url):
 def main():
     print("Bot running...")
 
+    # run web server in background
+    threading.Thread(target=run_web).start()
+
     offset = None
 
     while True:
@@ -58,6 +73,5 @@ def main():
                         send_message(chat_id, f"Error: {str(e)}")
 
         time.sleep(2)
-
 if __name__ == "__main__":
     main()
