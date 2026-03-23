@@ -1,14 +1,25 @@
 import os
-import logging
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+import time
+import requests
 import yt_dlp
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-logging.basicConfig(level=logging.INFO)
+def get_updates(offset=None):
+    url = f"{BASE_URL}/getUpdates"
+    params = {"timeout": 30, "offset": offset}
+    return requests.get(url, params=params).json()
 
-# Download function
+def send_message(chat_id, text):
+    url = f"{BASE_URL}/sendMessage"
+    requests.post(url, data={"chat_id": chat_id, "text": text})
+
+def send_video(chat_id, file_path):
+    url = f"{BASE_URL}/sendVideo"
+    with open(file_path, "rb") as f:
+        requests.post(url, data={"chat_id": chat_id}, files={"video": f})
+
 def download_video(url):
     ydl_opts = {
         'outtmpl': 'video.%(ext)s',
@@ -19,35 +30,34 @@ def download_video(url):
         info = ydl.extract_info(url, download=True)
         return ydl.prepare_filename(info)
 
-# Start command
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Link dao, ami video download kore dibo 📥")
-
-# Handle messages (link input)
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text
-
-    await update.message.reply_text("Downloading... ⏳")
-
-    try:
-        file_path = download_video(url)
-
-        await update.message.reply_video(video=open(file_path, 'rb'))
-
-        os.remove(file_path)
-
-    except Exception as e:
-        await update.message.reply_text(f"Error: {str(e)}")
-
-# Run bot
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
     print("Bot running...")
-    app.run_polling()
+
+    offset = None
+
+    while True:
+        data = get_updates(offset)
+
+        for update in data.get("result", []):
+            offset = update["update_id"] + 1
+
+            if "message" in update:
+                chat_id = update["message"]["chat"]["id"]
+                text = update["message"].get("text", "")
+
+                if text.startswith("/start"):
+                    send_message(chat_id, "Link dao, ami video download kore dibo 📥")
+                else:
+                    send_message(chat_id, "Downloading... ⏳")
+
+                    try:
+                        file_path = download_video(text)
+                        send_video(chat_id, file_path)
+                        os.remove(file_path)
+                    except Exception as e:
+                        send_message(chat_id, f"Error: {str(e)}")
+
+        time.sleep(2)
 
 if __name__ == "__main__":
     main()
